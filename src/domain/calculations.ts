@@ -62,9 +62,38 @@ export function calculateFinancialSummary(
     });
   });
 
+  // Multi-key alias resolver so transactions with legacy IDs, names, or aliases match their wallet
+  const methodLookup = new Map<string, MethodBalanceBreakdown>();
+  methods.forEach((m) => {
+    const item = breakdownMap.get(m.id);
+    if (!item) return;
+    methodLookup.set(m.id, item);
+    methodLookup.set(m.id.toLowerCase(), item);
+    methodLookup.set(m.name.trim().toLowerCase(), item);
+    if (m.legacyNames) {
+      m.legacyNames.forEach((ln) => methodLookup.set(ln.trim().toLowerCase(), item));
+    }
+    if (m.type === 'cash') {
+      methodLookup.set('cash', item);
+    }
+    if (m.name.toLowerCase().includes('bkash')) {
+      methodLookup.set('bkash', item);
+    }
+    if (m.name.toLowerCase().includes('nagad')) {
+      methodLookup.set('nagad', item);
+    }
+  });
+
+  const resolveItem = (payMethodId?: string): MethodBalanceBreakdown | undefined => {
+    if (!payMethodId) return undefined;
+    const direct = breakdownMap.get(payMethodId);
+    if (direct) return direct;
+    return methodLookup.get(payMethodId.trim().toLowerCase());
+  };
+
   // 1. Process Earnings
   earnings.forEach((e) => {
-    const item = breakdownMap.get(e.payMethodId);
+    const item = resolveItem(e.payMethodId);
     if (item) {
       item.earnings += e.amount;
     }
@@ -72,7 +101,7 @@ export function calculateFinancialSummary(
 
   // 2. Process Expenses
   expenses.forEach((ex) => {
-    const item = breakdownMap.get(ex.payMethodId);
+    const item = resolveItem(ex.payMethodId);
     if (item) {
       item.expenses += ex.amount;
     }
@@ -80,8 +109,8 @@ export function calculateFinancialSummary(
 
   // 3. Process Transfers
   transfers.forEach((t) => {
-    const fromItem = breakdownMap.get(t.fromMethodId);
-    const toItem = breakdownMap.get(t.toMethodId);
+    const fromItem = resolveItem(t.fromMethodId);
+    const toItem = resolveItem(t.toMethodId);
 
     if (fromItem) {
       fromItem.transfersOut += t.requestedAmount;
@@ -102,7 +131,7 @@ export function calculateFinancialSummary(
       return;
     }
 
-    const item = breakdownMap.get(tx.payMethodId);
+    const item = resolveItem(tx.payMethodId);
     if (item) {
       const charge = tx.chargeApplied && tx.chargeAmount && tx.chargeAmount > 0 ? tx.chargeAmount : 0;
       if (tx.type === 'give') {
