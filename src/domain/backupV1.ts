@@ -1,6 +1,7 @@
 import {
   UserSettings,
   PaymentMethod,
+  PaymentMethodType,
   ExpenseRecord,
   RecurringExpenseRecord,
   EarningRecord,
@@ -167,6 +168,20 @@ export function validateEcoBackupV1(jsonContent: string): {
     otherMethods: [] as string[]
   };
 
+  // Inspect paymentMethods array if present
+  const pmList = data.paymentMethods || [];
+  pmList.forEach((rec: RawBackupRecord) => {
+    const f = rec.fields || {};
+    const name = String(f.name || '').toLowerCase();
+    const type = String(f.type || '').toLowerCase();
+    if (name.includes('cash') || type === 'cash') represented.hasCash = true;
+    else if (name.includes('bkash')) represented.hasBkash = true;
+    else if (name.includes('nagad')) represented.hasNagad = true;
+    else if (f.name && !represented.otherMethods.includes(f.name)) {
+      represented.otherMethods.push(f.name);
+    }
+  });
+
   // Inspect openingBalances
   const openingList = data.openingBalances || [];
   openingList.forEach((rec: RawBackupRecord) => {
@@ -174,17 +189,24 @@ export function validateEcoBackupV1(jsonContent: string): {
     if (f.cash !== undefined && f.cash !== null) represented.hasCash = true;
     if (f.bkash !== undefined && f.bkash !== null) represented.hasBkash = true;
     if (f.nagad !== undefined && f.nagad !== null) represented.hasNagad = true;
+    for (const [k, v] of Object.entries(f)) {
+      if (['date', 'id', 'createdAt', 'timestamp', 'updatedAt', 'cash', 'bkash', 'nagad'].includes(k)) continue;
+      if (typeof v === 'number' && !represented.otherMethods.includes(k)) {
+        represented.otherMethods.push(k);
+      }
+    }
   });
 
   // Inspect transaction & expense payMethods
   const allTxList = [
     ...(data.expenses || []),
+    ...(data.recurringExpenses || []),
     ...(data.earnings || []),
     ...(data.transactions || [])
   ];
 
   allTxList.forEach((rec: RawBackupRecord) => {
-    const m = rec.fields?.payMethod;
+    const m = rec.fields?.payMethodId || rec.fields?.payMethod || rec.fields?.paymentMethodId || rec.fields?.paymentMethod || rec.fields?.method || rec.fields?.wallet;
     if (typeof m === 'string') {
       const lower = m.toLowerCase();
       if (lower.includes('cash')) represented.hasCash = true;
@@ -194,6 +216,23 @@ export function validateEcoBackupV1(jsonContent: string): {
         represented.otherMethods.push(m);
       }
     }
+  });
+
+  // Inspect transfers
+  (data.transfers || []).forEach((rec: RawBackupRecord) => {
+    const fromM = rec.fields?.fromMethodId || rec.fields?.from || rec.fields?.fromMethod || rec.fields?.fromWallet;
+    const toM = rec.fields?.toMethodId || rec.fields?.to || rec.fields?.toMethod || rec.fields?.toWallet;
+    [fromM, toM].forEach((m) => {
+      if (typeof m === 'string') {
+        const lower = m.toLowerCase();
+        if (lower.includes('cash')) represented.hasCash = true;
+        else if (lower.includes('bkash')) represented.hasBkash = true;
+        else if (lower.includes('nagad')) represented.hasNagad = true;
+        else if (!represented.otherMethods.includes(m)) {
+          represented.otherMethods.push(m);
+        }
+      }
+    });
   });
 
   if (parsed.integrity?.redactedFields?.['shareLinks.hash']) {
@@ -268,84 +307,224 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
 
   // 2. Discover and create payment methods
   const paymentMethods: PaymentMethod[] = [];
-  const methodMap = new Map<string, string>(); // legacy lower name -> methodId
+  const methodMap = new Map<string, string>(); // identifier / alias / name -> canonical methodId
 
-  // Cash is always created
-  const cashMethod: PaymentMethod = {
-    id: BUILTIN_CASH_ID,
-    name: 'Cash',
-    type: 'cash',
-    isBuiltIn: true,
-    isActive: true,
-    balance: 0,
-    openingBalance: 0,
-    createdAt: now,
-    updatedAt: now,
-    legacyNames: ['cash', 'Cash']
-  };
-  paymentMethods.push(cashMethod);
-  methodMap.set('cash', cashMethod.id);
+  const rawOpening = restoreTaggedValues(data.openingBalances?.[0]?.fields || {});
 
-  // Check openingBalances record
-  const rawOpening = data.openingBalances?.[0]?.fields || {};
-  if (rawOpening.cash !== undefined && rawOpening.cash !== null) {
-    cashMethod.openingBalance = Number(rawOpening.cash) || 0;
+  // Case A: Modern backup with explicit paymentMethods array
+  if (Array.isArray(data.paymentMethods) && data.paymentMethods.length > 0) {
+    data.paymentMethods.forEach((pmRec: RawBackupRecord) => {
+      const f = restoreTaggedValues(pmRec.fields || {});
+      const methodId = pmRec.id || f.id || `method_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const methodName = f.name || 'Unnamed Wallet';
+      const methodType: PaymentMethodType =
+        f.type ||
+        (methodName.toLowerCase().includes('cash')
+          ? 'cash'
+          : methodName.toLowerCase().includes('bank')
+          ? 'bank'
+          : methodName.toLowerCase().includes('card')
+          ? 'credit_card'
+          : 'mobile_money');
+
+      const method: PaymentMethod = {
+        id: methodId,
+        name: methodName,
+        type: methodType,
+        isBuiltIn: Boolean(f.isBuiltIn || methodId === BUILTIN_CASH_ID || methodType === 'cash'),
+        isActive: f.isActive !== false,
+        balance: Number(f.balance) || Number(f.openingBalance) || 0,
+        openingBalance: Number(f.openingBalance) || 0,
+        createdAt: f.createdAt || now,
+        updatedAt: f.updatedAt || now,
+        legacyNames: Array.isArray(f.legacyNames) ? f.legacyNames : [methodName, methodId]
+      };
+
+      paymentMethods.push(method);
+      methodMap.set(method.id.toLowerCase(), method.id);
+      methodMap.set(method.name.trim().toLowerCase(), method.id);
+      if (method.legacyNames) {
+        method.legacyNames.forEach((ln) => methodMap.set(ln.trim().toLowerCase(), method.id));
+      }
+    });
+  } else {
+    // Case B: Legacy backup with openingBalances + transaction scanning
+    // Cash is always created
+    const cashOpening =
+      rawOpening.cash !== undefined && rawOpening.cash !== null
+        ? Number(rawOpening.cash) || 0
+        : 0;
+    const cashMethod: PaymentMethod = {
+      id: BUILTIN_CASH_ID,
+      name: 'Cash',
+      type: 'cash',
+      isBuiltIn: true,
+      isActive: true,
+      balance: cashOpening,
+      openingBalance: cashOpening,
+      createdAt: now,
+      updatedAt: now,
+      legacyNames: ['cash', 'Cash', 'method_cash_default']
+    };
+    paymentMethods.push(cashMethod);
+    methodMap.set('cash', cashMethod.id);
+    methodMap.set(cashMethod.id.toLowerCase(), cashMethod.id);
+
+    // Scan helper for method usage in transactions
+    const matchesMethod = (nameQuery: string): boolean => {
+      const q = nameQuery.toLowerCase();
+      const inExp = (data.expenses || []).some((e) => {
+        const m = String(e.fields?.payMethodId || e.fields?.payMethod || e.fields?.paymentMethodId || e.fields?.paymentMethod || e.fields?.method || e.fields?.wallet || '').toLowerCase();
+        return m.includes(q);
+      });
+      const inRec = (data.recurringExpenses || []).some((r) => {
+        const m = String(r.fields?.payMethodId || r.fields?.payMethod || r.fields?.paymentMethodId || r.fields?.paymentMethod || r.fields?.method || r.fields?.wallet || '').toLowerCase();
+        return m.includes(q);
+      });
+      const inEarn = (data.earnings || []).some((ea) => {
+        const m = String(ea.fields?.payMethodId || ea.fields?.payMethod || ea.fields?.paymentMethodId || ea.fields?.paymentMethod || ea.fields?.method || ea.fields?.wallet || '').toLowerCase();
+        return m.includes(q);
+      });
+      const inTx = (data.transactions || []).some((t) => {
+        const m = String(t.fields?.payMethodId || t.fields?.payMethod || t.fields?.paymentMethodId || t.fields?.paymentMethod || t.fields?.method || t.fields?.wallet || '').toLowerCase();
+        return m.includes(q);
+      });
+      const inTransfer = (data.transfers || []).some((tr) => {
+        const fM = String(tr.fields?.fromMethodId || tr.fields?.from || tr.fields?.fromMethod || tr.fields?.fromWallet || '').toLowerCase();
+        const tM = String(tr.fields?.toMethodId || tr.fields?.to || tr.fields?.toMethod || tr.fields?.toWallet || '').toLowerCase();
+        return fM.includes(q) || tM.includes(q);
+      });
+      return inExp || inRec || inEarn || inTx || inTransfer;
+    };
+
+    // Restore bKash ONLY if represented
+    const hasBkash = (rawOpening.bkash !== undefined && rawOpening.bkash !== null) || matchesMethod('bkash');
+    if (hasBkash) {
+      const bkashOpening = Number(rawOpening.bkash) || 0;
+      const bkashMethod: PaymentMethod = {
+        id: 'method_bkash_migrated',
+        name: 'bKash',
+        type: 'mobile_money',
+        isBuiltIn: false,
+        isActive: true,
+        balance: bkashOpening,
+        openingBalance: bkashOpening,
+        createdAt: now,
+        updatedAt: now,
+        legacyNames: ['bkash', 'bKash', 'method_bkash_migrated']
+      };
+      paymentMethods.push(bkashMethod);
+      methodMap.set('bkash', bkashMethod.id);
+      methodMap.set(bkashMethod.id.toLowerCase(), bkashMethod.id);
+    }
+
+    // Restore Nagad ONLY if represented
+    const hasNagad = (rawOpening.nagad !== undefined && rawOpening.nagad !== null) || matchesMethod('nagad');
+    if (hasNagad) {
+      const nagadOpening = Number(rawOpening.nagad) || 0;
+      const nagadMethod: PaymentMethod = {
+        id: 'method_nagad_migrated',
+        name: 'Nagad',
+        type: 'mobile_money',
+        isBuiltIn: false,
+        isActive: true,
+        balance: nagadOpening,
+        openingBalance: nagadOpening,
+        createdAt: now,
+        updatedAt: now,
+        legacyNames: ['nagad', 'Nagad', 'method_nagad_migrated']
+      };
+      paymentMethods.push(nagadMethod);
+      methodMap.set('nagad', nagadMethod.id);
+      methodMap.set(nagadMethod.id.toLowerCase(), nagadMethod.id);
+    }
+
+    // Check for custom wallets in openingBalances (e.g. cityBank, rocket, etc.)
+    for (const [key, val] of Object.entries(rawOpening)) {
+      if (['cash', 'bkash', 'nagad', 'date', 'id', 'createdAt', 'timestamp', 'updatedAt'].includes(key.toLowerCase())) continue;
+      if (typeof val === 'number') {
+        const customId = `method_${key.toLowerCase()}_migrated`;
+        const customName = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()).trim();
+        const customType: PaymentMethodType = customName.toLowerCase().includes('bank') ? 'bank' : 'mobile_money';
+        const customMethod: PaymentMethod = {
+          id: customId,
+          name: customName,
+          type: customType,
+          isBuiltIn: false,
+          isActive: true,
+          balance: val,
+          openingBalance: val,
+          createdAt: now,
+          updatedAt: now,
+          legacyNames: [key, customName, customId]
+        };
+        paymentMethods.push(customMethod);
+        methodMap.set(key.toLowerCase(), customId);
+        methodMap.set(customName.toLowerCase(), customId);
+        methodMap.set(customId.toLowerCase(), customId);
+      }
+    }
   }
 
-  // Restore bKash ONLY if represented
-  const hasBkash =
-    rawOpening.bkash !== undefined ||
-    data.expenses?.some((e) => e.fields?.payMethod?.toLowerCase()?.includes('bkash')) ||
-    data.transactions?.some((t) => t.fields?.payMethod?.toLowerCase()?.includes('bkash'));
+  // Ensure cashMethod is available as fallback
+  const cashObj = paymentMethods.find((m) => m.type === 'cash') || paymentMethods[0];
+  const defaultCashId = cashObj ? cashObj.id : BUILTIN_CASH_ID;
 
-  if (hasBkash) {
-    const bkashMethod: PaymentMethod = {
-      id: 'method_bkash_migrated',
-      name: 'bKash',
-      type: 'mobile_money',
+  // Robust helper to resolve any payMethod identifier, alias, or name to canonical methodId
+  const getMethodId = (rawInput: any): string => {
+    if (rawInput === null || rawInput === undefined) return defaultCashId;
+    const str = String(rawInput).trim();
+    if (!str) return defaultCashId;
+
+    // 1. Exact match on method.id
+    const existingById = paymentMethods.find((m) => m.id === str);
+    if (existingById) return existingById.id;
+
+    // 2. Direct map match
+    const lower = str.toLowerCase();
+    if (methodMap.has(lower)) {
+      return methodMap.get(lower)!;
+    }
+
+    // 3. Name or legacyNames match
+    const existingByName = paymentMethods.find(
+      (m) =>
+        m.name.trim().toLowerCase() === lower ||
+        m.legacyNames?.some((ln) => ln.trim().toLowerCase() === lower)
+    );
+    if (existingByName) return existingByName.id;
+
+    // 4. Substring heuristics
+    if (lower.includes('bkash')) {
+      const bk = paymentMethods.find((m) => m.name.toLowerCase().includes('bkash'));
+      if (bk) return bk.id;
+    }
+    if (lower.includes('nagad')) {
+      const ng = paymentMethods.find((m) => m.name.toLowerCase().includes('nagad'));
+      if (ng) return ng.id;
+    }
+    if (lower.includes('cash')) {
+      return defaultCashId;
+    }
+
+    // 5. If not found in existing methods, dynamically register new custom method
+    const newId = `method_${lower.replace(/[^a-z0-9]/g, '_')}_migrated`;
+    const newMethod: PaymentMethod = {
+      id: newId,
+      name: str,
+      type: lower.includes('bank') ? 'bank' : lower.includes('card') ? 'credit_card' : 'mobile_money',
       isBuiltIn: false,
       isActive: true,
       balance: 0,
-      openingBalance: Number(rawOpening.bkash) || 0,
+      openingBalance: 0,
       createdAt: now,
       updatedAt: now,
-      legacyNames: ['bkash', 'bKash']
+      legacyNames: [str, newId]
     };
-    paymentMethods.push(bkashMethod);
-    methodMap.set('bkash', bkashMethod.id);
-  }
-
-  // Restore Nagad ONLY if represented
-  const hasNagad =
-    rawOpening.nagad !== undefined ||
-    data.expenses?.some((e) => e.fields?.payMethod?.toLowerCase()?.includes('nagad')) ||
-    data.transactions?.some((t) => t.fields?.payMethod?.toLowerCase()?.includes('nagad'));
-
-  if (hasNagad) {
-    const nagadMethod: PaymentMethod = {
-      id: 'method_nagad_migrated',
-      name: 'Nagad',
-      type: 'mobile_money',
-      isBuiltIn: false,
-      isActive: true,
-      balance: 0,
-      openingBalance: Number(rawOpening.nagad) || 0,
-      createdAt: now,
-      updatedAt: now,
-      legacyNames: ['nagad', 'Nagad']
-    };
-    paymentMethods.push(nagadMethod);
-    methodMap.set('nagad', nagadMethod.id);
-  }
-
-  // Helper to map legacy payMethod string to methodId
-  const getMethodId = (payMethod: any): string => {
-    if (!payMethod) return BUILTIN_CASH_ID;
-    const lower = String(payMethod).trim().toLowerCase();
-    if (lower.includes('bkash') && methodMap.has('bkash')) return methodMap.get('bkash')!;
-    if (lower.includes('nagad') && methodMap.has('nagad')) return methodMap.get('nagad')!;
-    if (lower.includes('cash')) return BUILTIN_CASH_ID;
-    return BUILTIN_CASH_ID;
+    paymentMethods.push(newMethod);
+    methodMap.set(lower, newId);
+    methodMap.set(newId.toLowerCase(), newId);
+    return newId;
   };
 
   // 3. People
@@ -369,6 +548,13 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
   // 4. Expenses
   const expenses: ExpenseRecord[] = (data.expenses || []).map((e) => {
     const f = restoreTaggedValues(e.fields || {});
+    const rawMethod =
+      f.payMethodId ??
+      f.payMethod ??
+      f.paymentMethodId ??
+      f.paymentMethod ??
+      f.method ??
+      f.wallet;
     return {
       id: e.id,
       reason: f.reason || f.description || 'Expense',
@@ -376,7 +562,7 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
       description: f.description || '',
       amount: Number(f.amount) || 0,
       type: (f.type as any) || 'regular',
-      payMethodId: getMethodId(f.payMethod),
+      payMethodId: getMethodId(rawMethod),
       date: f.date || now.split('T')[0],
       timestamp: typeof f.timestamp === 'number' ? f.timestamp : Date.now()
     };
@@ -385,6 +571,13 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
   // 5. Recurring Expenses
   const recurringExpenses: RecurringExpenseRecord[] = (data.recurringExpenses || []).map((r) => {
     const f = restoreTaggedValues(r.fields || {});
+    const rawMethod =
+      f.payMethodId ??
+      f.payMethod ??
+      f.paymentMethodId ??
+      f.paymentMethod ??
+      f.method ??
+      f.wallet;
     return {
       id: r.id,
       reason: f.reason || 'Recurring Expense',
@@ -394,7 +587,7 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
       days: Number(f.days) || 30,
       startDate: f.startDate || now.split('T')[0],
       endDate: f.endDate || now.split('T')[0],
-      payMethodId: getMethodId(f.payMethod),
+      payMethodId: getMethodId(rawMethod),
       timestamp: Date.now()
     };
   });
@@ -402,12 +595,19 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
   // 6. Earnings
   const earnings: EarningRecord[] = (data.earnings || []).map((earn) => {
     const f = restoreTaggedValues(earn.fields || {});
+    const rawMethod =
+      f.payMethodId ??
+      f.payMethod ??
+      f.paymentMethodId ??
+      f.paymentMethod ??
+      f.method ??
+      f.wallet;
     return {
       id: earn.id,
       source: f.source || 'Salary',
       description: f.description || '',
       amount: Number(f.amount) || 0,
-      payMethodId: getMethodId(f.payMethod),
+      payMethodId: getMethodId(rawMethod),
       date: f.date || now.split('T')[0],
       timestamp: typeof f.timestamp === 'number' ? f.timestamp : Date.now()
     };
@@ -421,11 +621,21 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
     const chargeAmount = Number(f.chargeAmount) || 0;
     const chargeRate = Number(f.chargeRate) || 0;
     const sourceDeducted = Number(f.sourceDeducted) || (reqAmount + chargeAmount);
+    const rawFrom =
+      f.fromMethodId ??
+      f.from ??
+      f.fromMethod ??
+      f.fromWallet;
+    const rawTo =
+      f.toMethodId ??
+      f.to ??
+      f.toMethod ??
+      f.toWallet;
 
     return {
       id: tr.id,
-      fromMethodId: getMethodId(f.from),
-      toMethodId: getMethodId(f.to),
+      fromMethodId: getMethodId(rawFrom),
+      toMethodId: getMethodId(rawTo),
       requestedAmount: reqAmount,
       chargeApplied,
       chargeAmount,
@@ -440,13 +650,20 @@ export function migrateBackupV1ToDomain(backup: EcoBackupV1): {
   // 8. Transactions (Peer Give/Take)
   const transactions: PeerTransactionRecord[] = (data.transactions || []).map((tx) => {
     const f = restoreTaggedValues(tx.fields || {});
+    const rawMethod =
+      f.payMethodId ??
+      f.payMethod ??
+      f.paymentMethodId ??
+      f.paymentMethod ??
+      f.method ??
+      f.wallet;
     return {
       id: tx.id,
       personId: f.personId || (people.find((p) => p.name === f.person)?.id) || 'unknown_person',
       type: (f.type as any) === 'take' ? 'take' : 'give',
       amount: Number(f.amount) || 0,
       totalAmount: Number(f.totalAmount) || Number(f.amount) || 0,
-      payMethodId: getMethodId(f.payMethod),
+      payMethodId: getMethodId(rawMethod),
       tag: f.tag || 'Loan',
       description: f.description || '',
       date: f.date || now.split('T')[0],
