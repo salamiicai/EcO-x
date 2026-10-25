@@ -677,5 +677,85 @@ export function runAllRegressionTests(): TestResult[] {
     results.push({ name: 'Multi-Wallet Balance Accuracy Test', passed: false, error: e.message });
   }
 
+  // Test 23: Universal Account Balance Calculation Method (Master Formula & Worked Example Verification)
+  try {
+    const universalBackup = {
+      format: 'eco-backup',
+      formatVersion: 1,
+      exportedAt: '2026-10-25T13:27:48.234Z',
+      app: { name: 'EcO (Echo)', purpose: 'Test' },
+      data: {
+        openingBalances: [
+          {
+            id: 'current',
+            fields: { cash: 6900, bkash: 23.50, nagad: 0 }
+          }
+        ],
+        earnings: [
+          { id: 'e1', fields: { amount: 5140, payMethod: 'cash' } },
+          { id: 'e2', fields: { amount: 26362, payMethod: 'bkash' } }
+        ],
+        expenses: [
+          { id: 'x1', fields: { amount: 19295, payMethod: 'cash' } },
+          { id: 'x2', fields: { amount: 11764.58, payMethod: 'bkash' } }
+        ],
+        recurringExpenses: [
+          { id: 'r1', fields: { amount: 2340, payMethod: 'cash' } },
+          { id: 'r2', fields: { amount: 716, payMethod: 'bkash' } }
+        ],
+        transfers: [
+          { id: 't1', fields: { from: 'bkash', to: 'cash', requestedAmount: 7050, sourceDeducted: 7148.35 } },
+          { id: 't2', fields: { from: 'cash', to: 'bkash', requestedAmount: 22, sourceDeducted: 22 } }
+        ],
+        people: [{ id: 'p1', fields: { name: 'Friend' } }],
+        transactions: [
+          // isOpening should be skipped
+          { id: 'tx_seed', fields: { personId: 'p1', type: 'give', amount: 55, payMethod: 'cash', isOpening: true } },
+          { id: 'tx1', fields: { personId: 'p1', type: 'take', amount: 6822, payMethod: 'cash', isOpening: false } },
+          { id: 'tx2', fields: { personId: 'p1', type: 'give', amount: 4135, payMethod: 'cash', isOpening: false } },
+          { id: 'tx3', fields: { personId: 'p1', type: 'take', amount: 1275, payMethod: 'bkash', isOpening: false } },
+          { id: 'tx4', fields: { personId: 'p1', type: 'give', amount: 3937, payMethod: 'bkash', isOpening: false } }
+        ]
+      },
+      integrity: { complete: true, counts: {} }
+    };
+
+    const domain = migrateBackupV1ToDomain(universalBackup as any);
+    const summary = calculateFinancialSummary(
+      domain.paymentMethods,
+      domain.expenses,
+      domain.recurringExpenses,
+      domain.earnings,
+      domain.transfers,
+      domain.transactions,
+      domain.people
+    );
+
+    const cashWallet = summary.walletBalances.find((w) => w.name.toLowerCase() === 'cash');
+    const bkashWallet = summary.walletBalances.find((w) => w.name.toLowerCase().includes('bkash'));
+    const nagadWallet = summary.walletBalances.find((w) => w.name.toLowerCase().includes('nagad'));
+
+    const cashCorrect = cashWallet?.currentBalance === 120;
+    const bkashCorrect = bkashWallet?.currentBalance === 4116.57;
+    const nagadCorrect = nagadWallet?.currentBalance === 0;
+    const totalCorrect = summary.liquidWalletTotal === 4236.57;
+
+    const passed = cashCorrect && bkashCorrect && nagadCorrect && totalCorrect;
+
+    results.push({
+      name: 'Universal Account Balance Calculation Method (Cash ৳120, bKash ৳4116.57, Total ৳4236.57)',
+      passed,
+      actual: {
+        cash: cashWallet?.currentBalance,
+        bkash: bkashWallet?.currentBalance,
+        nagad: nagadWallet?.currentBalance,
+        total: summary.liquidWalletTotal
+      },
+      expected: { cash: 120, bkash: 4116.57, nagad: 0, total: 4236.57 }
+    });
+  } catch (e: any) {
+    results.push({ name: 'Universal Account Balance Calculation Test', passed: false, error: e.message });
+  }
+
   return results;
 }
