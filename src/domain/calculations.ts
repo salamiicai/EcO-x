@@ -18,6 +18,7 @@ export interface MethodBalanceBreakdown {
   openingBalance: number;
   earnings: number;
   expenses: number;
+  recurringExpenses: number;
   transfersIn: number;
   transfersOut: number;
   transfersFees: number;
@@ -53,6 +54,7 @@ export function calculateFinancialSummary(
       openingBalance: m.openingBalance || 0,
       earnings: 0,
       expenses: 0,
+      recurringExpenses: 0,
       transfersIn: 0,
       transfersOut: 0,
       transfersFees: 0,
@@ -91,41 +93,55 @@ export function calculateFinancialSummary(
     return methodLookup.get(payMethodId.trim().toLowerCase());
   };
 
-  // 1. Process Earnings
+  // 1. Process Earnings (+ into wallet)
   earnings.forEach((e) => {
     const item = resolveItem(e.payMethodId);
     if (item) {
-      item.earnings += e.amount;
+      item.earnings += Number(e.amount) || 0;
     }
   });
 
-  // 2. Process Expenses
+  // 2. Process Expenses (− from wallet)
   expenses.forEach((ex) => {
     const item = resolveItem(ex.payMethodId);
     if (item) {
-      item.expenses += ex.amount;
+      item.expenses += Number(ex.amount) || 0;
     }
   });
 
-  // 3. Process Transfers
+  // 3. Process Recurring Expenses (− full amount applied once per account)
+  recurringExpenses.forEach((r) => {
+    const item = resolveItem(r.payMethodId);
+    if (item) {
+      item.recurringExpenses += Number(r.amount) || 0;
+    }
+  });
+
+  // 4. Process Transfers (sourceDeducted for from, requestedAmount for to)
   transfers.forEach((t) => {
     const fromItem = resolveItem(t.fromMethodId);
     const toItem = resolveItem(t.toMethodId);
+    const reqAmt = Number(t.requestedAmount) || 0;
+    const fee = Number(t.chargeAmount) || 0;
+    const srcDed = Number(t.sourceDeducted) || (reqAmt + (t.chargeApplied ? fee : 0));
 
     if (fromItem) {
-      fromItem.transfersOut += t.requestedAmount;
-      if (t.chargeApplied && t.chargeAmount > 0) {
-        fromItem.transfersFees += t.chargeAmount;
+      fromItem.transfersOut += srcDed;
+      if (fee > 0) {
+        fromItem.transfersFees += fee;
       }
     }
 
     if (toItem) {
-      toItem.transfersIn += t.requestedAmount;
+      toItem.transfersIn += reqAmt;
     }
   });
 
-  // 4. Process Peer Transactions
+  // 5. Process Peer Transactions (skip historical seed entries where isOpening is true)
   transactions.forEach((tx) => {
+    if (tx.isOpening === true) {
+      return; // Historical seed entries already captured in openingBalances
+    }
     // If it's a connected proposal that isn't confirmed or is cancelled, skip
     if (tx.status === 'pending' || tx.status === 'rejected' || tx.status === 'cancelled') {
       return;
@@ -133,18 +149,20 @@ export function calculateFinancialSummary(
 
     const item = resolveItem(tx.payMethodId);
     if (item) {
+      const amt = Number(tx.amount) || 0;
       const charge = tx.chargeApplied && tx.chargeAmount && tx.chargeAmount > 0 ? tx.chargeAmount : 0;
       if (tx.type === 'give') {
-        // User lent money from wallet -> wallet pays principal + fee (if fee occurred)
-        item.peerGivenOut += (tx.amount + charge);
+        // You gave money to a person -> leaves wallet (plus any cashout charge applied at agent)
+        item.peerGivenOut += (amt + charge);
       } else if (tx.type === 'take') {
-        // User borrowed money into wallet -> wallet receives principal
-        item.peerTakenIn += tx.amount;
+        // You received money from a person -> enters wallet
+        item.peerTakenIn += amt;
       }
     }
   });
 
-  // Calculate each method's current balance
+  // Calculate each method's current balance according to the Universal Formula:
+  // Balance(A) = Opening + earnings − expenses − recurring + transfersIn − transfersOut + peerTakenIn − peerGivenOut
   let liquidWalletTotal = 0;
   const walletBalances: MethodBalanceBreakdown[] = [];
 
@@ -152,12 +170,12 @@ export function calculateFinancialSummary(
     item.currentBalance = roundToTwoDecimals(
       item.openingBalance +
       item.earnings -
-      item.expenses +
+      item.expenses -
+      item.recurringExpenses +
       item.transfersIn -
-      item.transfersOut -
-      item.transfersFees -
-      item.peerGivenOut +
-      item.peerTakenIn
+      item.transfersOut +
+      item.peerTakenIn -
+      item.peerGivenOut
     );
 
     // Only active methods contribute to active liquid total
