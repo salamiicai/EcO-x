@@ -313,20 +313,65 @@ export const WalletsView: React.FC<WalletsViewProps> = ({
             </div>
 
             {/* Inflows & Outflows stats */}
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
-                <span className="text-[#BCCAC1]">Total Earnings / Inflow:</span>
+            <div className="space-y-1.5 text-xs max-h-72 overflow-y-auto pr-1">
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                <span className="text-[#BCCAC1]">Earnings / Inflow (+):</span>
                 <span className="font-mono font-semibold text-[#73E3B4]">
                   +{formatTaka(selectedWalletForBreakdown.earnings)}
                 </span>
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
-                <span className="text-[#BCCAC1]">Total Expenses / Outflow:</span>
+              <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                <span className="text-[#BCCAC1]">Expenses (−):</span>
                 <span className="font-mono font-semibold text-[#FFB4AB]">
                   -{formatTaka(selectedWalletForBreakdown.expenses)}
                 </span>
               </div>
+
+              {selectedWalletForBreakdown.recurringExpenses > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                  <span className="text-[#BCCAC1]">Recurring Expenses (−):</span>
+                  <span className="font-mono font-semibold text-[#FFB4AB]">
+                    -{formatTaka(selectedWalletForBreakdown.recurringExpenses)}
+                  </span>
+                </div>
+              )}
+
+              {selectedWalletForBreakdown.transfersIn > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                  <span className="text-[#BCCAC1]">Transfers Received (+):</span>
+                  <span className="font-mono font-semibold text-[#73E3B4]">
+                    +{formatTaka(selectedWalletForBreakdown.transfersIn)}
+                  </span>
+                </div>
+              )}
+
+              {selectedWalletForBreakdown.transfersOut > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                  <span className="text-[#BCCAC1]">Transfers Sent (−):</span>
+                  <span className="font-mono font-semibold text-[#FFB4AB]">
+                    -{formatTaka(selectedWalletForBreakdown.transfersOut)}
+                  </span>
+                </div>
+              )}
+
+              {selectedWalletForBreakdown.peerTakenIn > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                  <span className="text-[#BCCAC1]">Person Ledger (Received / Repaid) (+):</span>
+                  <span className="font-mono font-semibold text-[#73E3B4]">
+                    +{formatTaka(selectedWalletForBreakdown.peerTakenIn)}
+                  </span>
+                </div>
+              )}
+
+              {selectedWalletForBreakdown.peerGivenOut > 0 && (
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0C0E12]/60 border border-[#3D4943]/30">
+                  <span className="text-[#BCCAC1]">Person Ledger (Lent Out) (−):</span>
+                  <span className="font-mono font-semibold text-[#FFB4AB]">
+                    -{formatTaka(selectedWalletForBreakdown.peerGivenOut)}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="pt-2 flex items-center justify-between gap-2 border-t border-[#3D4943]/30">
