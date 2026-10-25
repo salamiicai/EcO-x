@@ -1442,7 +1442,36 @@ export class HybridFirebaseRepository {
 
     // 2. Methods
     for (const m of domainData.paymentMethods) {
-      await this.savePaymentMethod(m);
+      const existing = this.paymentMethods.find(
+        (existingM) =>
+          existingM.id === m.id ||
+          (existingM.name.trim().toLowerCase() === m.name.trim().toLowerCase() && existingM.type === m.type) ||
+          (existingM.type === 'cash' && m.type === 'cash')
+      );
+
+      if (existing) {
+        const oldId = m.id;
+        const newId = existing.id;
+        const updatedMethod = {
+          ...existing,
+          openingBalance: m.openingBalance !== undefined ? m.openingBalance : existing.openingBalance,
+          isActive: true
+        };
+        await this.savePaymentMethod(updatedMethod);
+
+        if (oldId !== newId) {
+          domainData.expenses.forEach((e) => { if (e.payMethodId === oldId) e.payMethodId = newId; });
+          domainData.recurringExpenses.forEach((r) => { if (r.payMethodId === oldId) r.payMethodId = newId; });
+          domainData.earnings.forEach((ea) => { if (ea.payMethodId === oldId) ea.payMethodId = newId; });
+          domainData.transfers.forEach((tr) => {
+            if (tr.fromMethodId === oldId) tr.fromMethodId = newId;
+            if (tr.toMethodId === oldId) tr.toMethodId = newId;
+          });
+          domainData.transactions.forEach((tx) => { if (tx.payMethodId === oldId) tx.payMethodId = newId; });
+        }
+      } else {
+        await this.savePaymentMethod(m);
+      }
     }
 
     // 3. People (Deduplicate)
@@ -1461,6 +1490,18 @@ export class HybridFirebaseRepository {
       if (!existingExpenseIds.has(exp.id)) {
         await this.addExpense(exp);
         existingExpenseIds.add(exp.id);
+        importedCount++;
+      } else {
+        skippedCount++;
+      }
+    }
+
+    // 4b. Recurring Expenses (Deduplicate)
+    const existingRecurringIds = new Set(this.recurringExpenses.map((r) => r.id));
+    for (const rec of domainData.recurringExpenses) {
+      if (!existingRecurringIds.has(rec.id)) {
+        await this.addRecurringExpense(rec);
+        existingRecurringIds.add(rec.id);
         importedCount++;
       } else {
         skippedCount++;
