@@ -609,5 +609,73 @@ export function runAllRegressionTests(): TestResult[] {
     results.push({ name: 'Backup Import Person Phone Test', passed: false, error: e.message });
   }
 
+  // Test 22: Backup Import - Multi-Wallet Transaction & Transfer Balance Accuracy
+  try {
+    const multiWalletBackup = {
+      format: 'eco-backup',
+      formatVersion: 1,
+      exportedAt: '2026-10-25T10:00:00.000Z',
+      app: { name: 'EcO', purpose: 'Backup' },
+      data: {
+        openingBalances: [
+          {
+            id: 'current',
+            fields: { cash: 2500, bkash: 7500, nagad: 1200 }
+          }
+        ],
+        people: [{ id: 'person_emon', fields: { name: 'Emon Ahmed' } }],
+        expenses: [
+          { id: 'exp_1', fields: { amount: 1450, payMethodId: 'cash' } },
+          { id: 'exp_2', fields: { amount: 1000, payMethodId: 'bkash' } }
+        ],
+        earnings: [
+          { id: 'earn_1', fields: { amount: 35000, payMethodId: 'cash' } }
+        ],
+        transfers: [
+          { id: 'tr_1', fields: { fromMethodId: 'cash', toMethodId: 'bkash', requestedAmount: 3000 } }
+        ],
+        transactions: [
+          { id: 'tx_1', fields: { personId: 'person_emon', type: 'give', amount: 1500, payMethodId: 'bkash' } }
+        ]
+      },
+      integrity: { complete: true, counts: {} }
+    };
+
+    const domain = migrateBackupV1ToDomain(multiWalletBackup as any);
+    const summary = calculateFinancialSummary(
+      domain.paymentMethods,
+      domain.expenses,
+      domain.recurringExpenses,
+      domain.earnings,
+      domain.transfers,
+      domain.transactions,
+      domain.people
+    );
+
+    const cashWallet = summary.walletBalances.find((w) => w.name.toLowerCase() === 'cash');
+    const bkashWallet = summary.walletBalances.find((w) => w.name.toLowerCase().includes('bkash'));
+    const nagadWallet = summary.walletBalances.find((w) => w.name.toLowerCase().includes('nagad'));
+
+    const passed =
+      cashWallet?.currentBalance === 33050 &&
+      bkashWallet?.currentBalance === 8000 &&
+      nagadWallet?.currentBalance === 1200 &&
+      summary.liquidWalletTotal === 42250;
+
+    results.push({
+      name: 'Backup Import - Multi-Wallet Transaction & Transfer Balance Accuracy',
+      passed,
+      actual: {
+        cash: cashWallet?.currentBalance,
+        bkash: bkashWallet?.currentBalance,
+        nagad: nagadWallet?.currentBalance,
+        total: summary.liquidWalletTotal
+      },
+      expected: { cash: 33050, bkash: 8000, nagad: 1200, total: 42250 }
+    });
+  } catch (e: any) {
+    results.push({ name: 'Multi-Wallet Balance Accuracy Test', passed: false, error: e.message });
+  }
+
   return results;
 }
