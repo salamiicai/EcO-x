@@ -24,6 +24,7 @@ import {
   IssueReport
 } from './domain/types';
 import { calculateFinancialSummary } from './domain/calculations';
+import { BUILTIN_BKASH_ID, BUILTIN_NAGAD_ID } from './domain/paymentMethods';
 import { invertProposalDirection } from './domain/connections';
 import { Navigation, NavTab } from './components/Navigation';
 import { Header } from './components/Header';
@@ -388,14 +389,14 @@ export default function App() {
       cash.balance = data.cashBalance;
       await repository.savePaymentMethod(cash);
     }
-    const bkash = currentMethods.find((m) => m.name.toLowerCase() === 'bkash');
+    const bkash = currentMethods.find((m) => m.name.toLowerCase().includes('bkash'));
     if (bkash) {
       bkash.openingBalance = data.bkashBalance;
       bkash.balance = data.bkashBalance;
       await repository.savePaymentMethod(bkash);
-    } else if (data.bkashBalance > 0) {
+    } else {
       await repository.savePaymentMethod({
-        id: `method_bkash_${Date.now()}`,
+        id: BUILTIN_BKASH_ID,
         name: 'bKash',
         type: 'mobile_money',
         isBuiltIn: false,
@@ -408,14 +409,14 @@ export default function App() {
       });
     }
 
-    const nagad = currentMethods.find((m) => m.name.toLowerCase() === 'nagad');
+    const nagad = currentMethods.find((m) => m.name.toLowerCase().includes('nagad'));
     if (nagad) {
       nagad.openingBalance = data.nagadBalance;
       nagad.balance = data.nagadBalance;
       await repository.savePaymentMethod(nagad);
-    } else if (data.nagadBalance > 0) {
+    } else {
       await repository.savePaymentMethod({
-        id: `method_nagad_${Date.now()}`,
+        id: BUILTIN_NAGAD_ID,
         name: 'Nagad',
         type: 'mobile_money',
         isBuiltIn: false,
