@@ -232,6 +232,20 @@
         "updatedAt": { "type": "number" }
       },
       "required": ["id", "participants", "senderUserId", "recipientUserId", "amount", "status"]
+    },
+    "OpeningBalances": {
+      "title": "OpeningBalances",
+      "description": "User opening balances per wallet",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cash": { "type": "number" },
+        "bkash": { "type": "number" },
+        "nagad": { "type": "number" },
+        "date": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "cash"]
     }
   },
   "firestore": {
@@ -286,6 +300,10 @@
     "/users/{userId}/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications"
+    },
+    "/users/{userId}/openingBalances/{balanceId}": {
+      "schema": "OpeningBalances",
+      "description": "User opening balance records"
     }
   }
 }
