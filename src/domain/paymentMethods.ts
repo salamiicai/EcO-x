@@ -1,8 +1,10 @@
 import { PaymentMethod, PaymentMethodType } from './types';
 
 export const BUILTIN_CASH_ID = 'method_cash_default';
+export const BUILTIN_BKASH_ID = 'method_bkash_default';
+export const BUILTIN_NAGAD_ID = 'method_nagad_default';
 export const MAX_CUSTOM_METHODS = 10;
-export const MAX_TOTAL_METHODS = 13; // 1 built-in + 10 custom + 2 legacy built-ins if restored
+export const MAX_TOTAL_METHODS = 13; // 3 core + 10 custom
 
 export function createDefaultPaymentMethods(): PaymentMethod[] {
   const now = new Date().toISOString();
@@ -18,6 +20,30 @@ export function createDefaultPaymentMethods(): PaymentMethod[] {
       createdAt: now,
       updatedAt: now,
       legacyNames: ['cash', 'Cash']
+    },
+    {
+      id: BUILTIN_BKASH_ID,
+      name: 'bKash',
+      type: 'mobile_money',
+      isBuiltIn: false,
+      isActive: true,
+      balance: 0,
+      openingBalance: 0,
+      createdAt: now,
+      updatedAt: now,
+      legacyNames: ['bkash', 'bKash']
+    },
+    {
+      id: BUILTIN_NAGAD_ID,
+      name: 'Nagad',
+      type: 'mobile_money',
+      isBuiltIn: false,
+      isActive: true,
+      balance: 0,
+      openingBalance: 0,
+      createdAt: now,
+      updatedAt: now,
+      legacyNames: ['nagad', 'Nagad']
     }
   ];
 }
