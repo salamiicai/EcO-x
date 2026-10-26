@@ -206,11 +206,6 @@ export const Navigation: React.FC<NavigationProps> = ({
           </button>
         </div>
 
-        {/* Footer profile/system identity */}
-        <div className="p-3 border-t border-[#3D4943]/30 text-[11px] text-[#87948C] flex items-center justify-between">
-          <span>Asia/Dhaka (৳)</span>
-          <span className="font-mono text-[10px] text-[#73E3B4]/80">v2.1</span>
-        </div>
       </aside>
 
       {/* --- Mobile Navigation Drawer (Slide-out from left) --- */}
