@@ -375,9 +375,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 <button
                   type="button"
                   onClick={onMarkAllRead}
-                  className="text-[11px] text-[#73E3B4] hover:underline flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-[#55C79A]/15 hover:bg-[#55C79A]/25 border border-[#73E3B4]/50 text-xs font-semibold text-[#73E3B4] flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+                  title="Mark all notifications as read"
                 >
-                  <CheckCheck className="w-3 h-3" />
+                  <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>Mark all read</span>
                 </button>
               )}
@@ -392,33 +393,57 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 No other notifications.
               </div>
             ) : (
-              <div className="divide-y divide-[#3D4943]/20">
+              <div className="space-y-2.5">
                 {notifications.map((notif) => {
                   const isUnread = !notif.readAt;
                   const dateStr = new Date(notif.createdAt).toISOString().split('T')[0];
                   return (
                     <div
                       key={notif.id}
-                      onClick={() => onMarkRead(notif.id)}
-                      className={`p-3 rounded-lg text-left transition-colors cursor-pointer ${
-                        isUnread ? 'bg-[#1E2024]/80 hover:bg-[#282A2E]' : 'hover:bg-[#1E2024]/40'
+                      className={`p-3.5 rounded-xl border transition-all ${
+                        isUnread
+                          ? 'bg-[#1E2024] border-[#73E3B4]/40 shadow-sm'
+                          : 'bg-[#14161A]/60 border-[#3D4943]/20'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="text-xs font-semibold text-[#E2E2E8]">
-                          {notif.title}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="text-xs font-bold text-[#E2E2E8]">
+                            {notif.title}
+                          </span>
+                          {isUnread ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#73E3B4]/15 text-[#73E3B4] border border-[#73E3B4]/30 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#73E3B4] animate-pulse" />
+                              Unread
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#282A2E] text-[#87948C] flex items-center gap-1">
+                              <Check className="w-3 h-3 text-[#73E3B4]" />
+                              Read
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] font-mono text-[#87948C] shrink-0">
                           {formatDisplayDate(dateStr)}
                         </span>
                       </div>
-                      <p className="text-xs text-[#BCCAC1] mt-1 leading-relaxed">
+                      <p className="text-xs text-[#BCCAC1] mt-1.5 leading-relaxed">
                         {notif.body}
                       </p>
                       {isUnread && (
-                        <div className="mt-2 flex items-center gap-1.5 text-[10px] text-[#73E3B4]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#73E3B4]" />
-                          <span>Unread</span>
+                        <div className="mt-2.5 pt-2 border-t border-[#3D4943]/30 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMarkRead(notif.id);
+                            }}
+                            className="px-3 py-1 rounded-lg bg-[#55C79A]/20 hover:bg-[#55C79A]/30 text-[#73E3B4] border border-[#73E3B4]/50 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm active:scale-95"
+                            title="Mark this notification as read"
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Mark as read</span>
+                          </button>
                         </div>
                       )}
                     </div>
