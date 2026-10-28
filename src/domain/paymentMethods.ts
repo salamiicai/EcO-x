@@ -107,3 +107,24 @@ export function resolveMethodByLegacyName(
     return false;
   });
 }
+
+/**
+ * Returns the default payment method for all input forms, strictly defaulting to 'Cash'.
+ * Users can still change it freely from their available payment methods list.
+ */
+export function getDefaultCashMethod(methods: PaymentMethod[] = []): PaymentMethod | undefined {
+  if (!methods || methods.length === 0) return undefined;
+  return (
+    methods.find((m) => m.type === 'cash' || m.id === BUILTIN_CASH_ID || m.id === 'cash' || m.name.trim().toLowerCase() === 'cash') ||
+    methods.find((m) => m.name.trim().toLowerCase().includes('cash')) ||
+    methods[0]
+  );
+}
+
+/**
+ * Returns the default payment method ID for all input forms, strictly defaulting to Cash.
+ */
+export function getDefaultCashMethodId(methods: PaymentMethod[] = []): string {
+  const method = getDefaultCashMethod(methods);
+  return method?.id || BUILTIN_CASH_ID;
+}
