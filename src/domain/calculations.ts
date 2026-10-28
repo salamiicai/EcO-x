@@ -90,7 +90,13 @@ export function calculateFinancialSummary(
     if (!payMethodId) return undefined;
     const direct = breakdownMap.get(payMethodId);
     if (direct) return direct;
-    return methodLookup.get(payMethodId.trim().toLowerCase());
+    const clean = payMethodId.trim().toLowerCase();
+    const lookup = methodLookup.get(clean);
+    if (lookup) return lookup;
+    if (clean.includes('cash')) return methodLookup.get('cash');
+    if (clean.includes('bkash')) return methodLookup.get('bkash');
+    if (clean.includes('nagad')) return methodLookup.get('nagad');
+    return undefined;
   };
 
   // 1. Process Earnings (+ into wallet)
