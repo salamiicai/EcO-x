@@ -337,6 +337,16 @@ export class HybridFirebaseRepository {
 
           // AWAIT all subcollections synchronously so mobile has 100% of data before resolving!
           try {
+            const fetchSafe = async (colName: string) => {
+              if (!db) return null;
+              try {
+                return await getDocs(collection(db, 'users', userId, colName));
+              } catch (e) {
+                console.warn(`[EcO Firestore] Fetch error on subcollection ${colName}:`, e);
+                return null;
+              }
+            };
+
             const [
               methodsSnap,
               expensesSnap,
@@ -348,18 +358,21 @@ export class HybridFirebaseRepository {
               sourcesSnap,
               notifsSnap
             ] = await Promise.all([
-              getDocs(collection(db, 'users', userId, 'paymentMethods')),
-              getDocs(collection(db, 'users', userId, 'expenses')),
-              getDocs(collection(db, 'users', userId, 'recurringExpenses')),
-              getDocs(collection(db, 'users', userId, 'earnings')),
-              getDocs(collection(db, 'users', userId, 'transfers')),
-              getDocs(collection(db, 'users', userId, 'people')),
-              getDocs(collection(db, 'users', userId, 'transactions')),
-              getDocs(collection(db, 'users', userId, 'sources')),
-              getDocs(collection(db, 'users', userId, 'notifications'))
+              fetchSafe('paymentMethods'),
+              fetchSafe('expenses'),
+              fetchSafe('recurringExpenses'),
+              fetchSafe('earnings'),
+              fetchSafe('transfers'),
+              fetchSafe('people'),
+              fetchSafe('transactions'),
+              fetchSafe('sources'),
+              fetchSafe('notifications')
             ]);
 
-            let loadedMethods = methodsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as PaymentMethod[];
+            let loadedMethods: PaymentMethod[] = methodsSnap
+              ? (methodsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as PaymentMethod[])
+              : [];
+
             if (loadedMethods.length === 0) {
               loadedMethods = createDefaultPaymentMethods();
               for (const m of loadedMethods) {
@@ -382,48 +395,64 @@ export class HybridFirebaseRepository {
               }
             }
 
-            // Reconcile openingBalances with paymentMethods if user doc or subcollection had openingBalances
+            // Reconcile openingBalances with paymentMethods
             let ob = data.openingBalances;
-            if (!ob) {
-              try {
-                const obSnap = await getDoc(doc(db, 'users', userId, 'openingBalances', 'current'));
-                if (obSnap.exists()) ob = obSnap.data();
-              } catch {}
-            }
-            if (ob) {
-              let changed = false;
-              loadedMethods = loadedMethods.map((m) => {
-                const nameLower = m.name.toLowerCase();
-                if ((m.type === 'cash' || nameLower === 'cash') && ob.cash !== undefined && m.openingBalance !== Number(ob.cash)) {
-                  changed = true;
-                  return { ...m, openingBalance: Number(ob.cash) || 0 };
+            try {
+              const obSnap = await getDoc(doc(db, 'users', userId, 'openingBalances', 'current'));
+              if (obSnap.exists()) {
+                ob = { ...(ob || {}), ...(obSnap.data() || {}) };
+              }
+            } catch {}
+
+            let changed = false;
+            loadedMethods = loadedMethods.map((m) => {
+              const nameLower = m.name.toLowerCase().trim();
+              let targetOpening = m.openingBalance || 0;
+
+              if (ob) {
+                if ((m.type === 'cash' || nameLower === 'cash') && ob.cash !== undefined) {
+                  const obVal = Number(ob.cash) || 0;
+                  if (targetOpening === 0 && obVal > 0) targetOpening = obVal;
+                  else if (targetOpening > 0 && obVal === 0) ob.cash = targetOpening;
+                } else if (nameLower.includes('bkash') && ob.bkash !== undefined) {
+                  const obVal = Number(ob.bkash) || 0;
+                  if (targetOpening === 0 && obVal > 0) targetOpening = obVal;
+                  else if (targetOpening > 0 && obVal === 0) ob.bkash = targetOpening;
+                } else if (nameLower.includes('nagad') && ob.nagad !== undefined) {
+                  const obVal = Number(ob.nagad) || 0;
+                  if (targetOpening === 0 && obVal > 0) targetOpening = obVal;
+                  else if (targetOpening > 0 && obVal === 0) ob.nagad = targetOpening;
+                } else {
+                  const cleanKey = nameLower.replace(/[^a-z0-9]/g, '');
+                  if (cleanKey && ob[cleanKey] !== undefined) {
+                    const obVal = Number(ob[cleanKey]) || 0;
+                    if (targetOpening === 0 && obVal > 0) targetOpening = obVal;
+                  }
                 }
-                if (nameLower.includes('bkash') && ob.bkash !== undefined && m.openingBalance !== Number(ob.bkash)) {
-                  changed = true;
-                  return { ...m, openingBalance: Number(ob.bkash) || 0 };
-                }
-                if (nameLower.includes('nagad') && ob.nagad !== undefined && m.openingBalance !== Number(ob.nagad)) {
-                  changed = true;
-                  return { ...m, openingBalance: Number(ob.nagad) || 0 };
-                }
-                return m;
-              });
-              if (changed) {
-                for (const m of loadedMethods) {
-                  await this.setDocSafe(doc(db, 'users', userId, 'paymentMethods', m.id), m, { merge: true });
-                }
+              }
+
+              if (m.openingBalance !== targetOpening) {
+                changed = true;
+                return { ...m, openingBalance: targetOpening };
+              }
+              return m;
+            });
+
+            if (changed) {
+              for (const m of loadedMethods) {
+                await this.setDocSafe(doc(db, 'users', userId, 'paymentMethods', m.id), m, { merge: true });
               }
             }
 
             this.paymentMethods = loadedMethods;
-            this.expenses = expensesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.recurringExpenses = recurringSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.earnings = earningsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.transfers = transfersSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.people = peopleSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.transactions = transactionsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.sources = sourcesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-            this.notifications = notifsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (expensesSnap) this.expenses = expensesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (recurringSnap) this.recurringExpenses = recurringSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (earningsSnap) this.earnings = earningsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (transfersSnap) this.transfers = transfersSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (peopleSnap) this.people = peopleSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (transactionsSnap) this.transactions = transactionsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (sourcesSnap) this.sources = sourcesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+            if (notifsSnap) this.notifications = notifsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
 
             // Save to local device cache for offline availability
             this.saveToLocalStorageCache('paymentMethods', this.paymentMethods);
@@ -526,6 +555,47 @@ export class HybridFirebaseRepository {
           }
         },
         (err) => handleFirestoreError(err, OperationType.GET, `users/${userId}`)
+      )
+    );
+
+    // 1b. Real-time Opening Balances listener (keeps wallets in sync across Desktop and Mobile)
+    const obDocRef = doc(firestoreDb, 'users', userId, 'openingBalances', 'current');
+    this.unsubs.push(
+      onSnapshot(
+        obDocRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const ob = snapshot.data();
+            let changed = false;
+            const updated = this.paymentMethods.map((m) => {
+              const nameLower = m.name.toLowerCase().trim();
+              let target = m.openingBalance || 0;
+              if ((m.type === 'cash' || nameLower === 'cash') && ob.cash !== undefined) {
+                target = Number(ob.cash) || 0;
+              } else if (nameLower.includes('bkash') && ob.bkash !== undefined) {
+                target = Number(ob.bkash) || 0;
+              } else if (nameLower.includes('nagad') && ob.nagad !== undefined) {
+                target = Number(ob.nagad) || 0;
+              } else {
+                const cleanKey = nameLower.replace(/[^a-z0-9]/g, '');
+                if (cleanKey && ob[cleanKey] !== undefined) {
+                  target = Number(ob[cleanKey]) || 0;
+                }
+              }
+              if (m.openingBalance !== target) {
+                changed = true;
+                return { ...m, openingBalance: target };
+              }
+              return m;
+            });
+            if (changed) {
+              this.paymentMethods = updated;
+              this.saveToLocalStorageCache('paymentMethods', updated);
+              this.notify();
+            }
+          }
+        },
+        () => {} // Non-blocking if subdocument does not exist yet
       )
     );
 
@@ -923,12 +993,19 @@ export class HybridFirebaseRepository {
         const cashM = list.find((m) => m.type === 'cash' || m.name.toLowerCase() === 'cash');
         const bkashM = list.find((m) => m.name.toLowerCase().includes('bkash'));
         const nagadM = list.find((m) => m.name.toLowerCase().includes('nagad'));
-        const openingBalancesData = {
+        const openingBalancesData: Record<string, any> = {
           cash: cashM?.openingBalance || 0,
           bkash: bkashM?.openingBalance || 0,
           nagad: nagadM?.openingBalance || 0,
           updatedAt: new Date().toISOString()
         };
+        // Also sync any custom payment methods into openingBalancesData
+        list.forEach((m) => {
+          const key = m.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (key && !['cash', 'bkash', 'nagad'].includes(key)) {
+            openingBalancesData[key] = m.openingBalance || 0;
+          }
+        });
 
         await this.setDocSafe(
           doc(db, 'users', this.activeUserId),
