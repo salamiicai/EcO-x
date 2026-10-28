@@ -13,7 +13,7 @@ import {
   EcOProposal,
   IssueReport
 } from '../domain/types';
-import { createDefaultPaymentMethods } from '../domain/paymentMethods';
+import { createDefaultPaymentMethods, getDefaultCashMethodId } from '../domain/paymentMethods';
 import { SEVEN_DAYS_MS } from '../domain/dates';
 import { EcoBackupV1, migrateBackupV1ToDomain } from '../domain/backupV1';
 import {
@@ -736,7 +736,7 @@ export class HybridFirebaseRepository {
                     type: p.originalSenderType,
                     amount: p.amount,
                     totalAmount: p.amount,
-                    payMethodId: p.payMethodId || this.paymentMethods[0]?.id || 'cash',
+                    payMethodId: p.payMethodId || this.getCashMethodId(),
                     tag: p.isRepayment ? 'Repayment' : 'Shared Debt',
                     description: p.note
                       ? `${p.note} (Confirmed)`
@@ -965,6 +965,10 @@ export class HybridFirebaseRepository {
   }
 
   // --- Payment Methods ---
+  getCashMethodId(): string {
+    return getDefaultCashMethodId(this.paymentMethods);
+  }
+
   getPaymentMethods(): PaymentMethod[] {
     return this.paymentMethods.length > 0 ? this.paymentMethods : createDefaultPaymentMethods();
   }
@@ -1546,7 +1550,7 @@ export class HybridFirebaseRepository {
       isRepayment: Boolean(params.isRepayment),
       date: params.date,
       note: params.note || '',
-      payMethodId: params.payMethodId || this.paymentMethods[0]?.id || 'cash',
+      payMethodId: params.payMethodId || this.getCashMethodId(),
       status: 'pending',
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -1652,7 +1656,7 @@ export class HybridFirebaseRepository {
       type: txType,
       amount: prop.amount,
       totalAmount: prop.amount,
-      payMethodId: payMethodId || this.paymentMethods[0]?.id || 'cash',
+      payMethodId: payMethodId || this.getCashMethodId(),
       tag: prop.isRepayment ? 'Repayment' : 'Shared Debt',
       description: txDesc,
       date: prop.date,
