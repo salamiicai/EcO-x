@@ -24,6 +24,7 @@ import {
 import { getTodayDateString, calculateRecurringEndDate } from '../domain/dates';
 import { calculateTransferCharge } from '../domain/calculations';
 import { formatTaka } from '../domain/money';
+import { getDefaultCashMethodId } from '../domain/paymentMethods';
 
 export type ActivityKind = 'expense' | 'earning' | 'transfer' | 'give' | 'take';
 
@@ -137,7 +138,7 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
   const [date, setDate] = useState<string>(getTodayDateString());
   const [amountStr, setAmountStr] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [payMethodId, setPayMethodId] = useState<string>(paymentMethods[0]?.id || '');
+  const [payMethodId, setPayMethodId] = useState<string>(() => getDefaultCashMethodId(paymentMethods));
 
   // Expense specific
   const [category, setCategory] = useState<string>(categories[0] || 'Food');
@@ -147,8 +148,12 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
   const [sourceName, setSourceName] = useState<string>(sources[0]?.name || 'Salary');
 
   // Transfer specific
-  const [fromMethodId, setFromMethodId] = useState<string>(paymentMethods[0]?.id || '');
-  const [toMethodId, setToMethodId] = useState<string>(paymentMethods[1]?.id || paymentMethods[0]?.id || '');
+  const [fromMethodId, setFromMethodId] = useState<string>(() => getDefaultCashMethodId(paymentMethods));
+  const [toMethodId, setToMethodId] = useState<string>(() => {
+    const cashId = getDefaultCashMethodId(paymentMethods);
+    const alt = paymentMethods.find((m) => m.id !== cashId && m.isActive) || paymentMethods.find((m) => m.id !== cashId) || paymentMethods[0];
+    return alt?.id || cashId;
+  });
   const [applyCharge, setApplyCharge] = useState<boolean>(false);
   const [chargeRate, setChargeRate] = useState<number>(1.85);
   const [transferPreset, setTransferPreset] = useState<'none' | 'bkash' | 'bkash_priyo' | 'nagad' | 'custom'>('none');
@@ -247,10 +252,11 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
       setPeerChargeRate(1.85);
       setPeerFeeTreatment('separate');
       if (paymentMethods.length > 0) {
-        setPayMethodId(paymentMethods[0].id);
-        setFromMethodId(paymentMethods[0].id);
-        const secondMethod = paymentMethods.find((m) => m.id !== paymentMethods[0].id) || paymentMethods[0];
-        setToMethodId(secondMethod.id);
+        const cashId = getDefaultCashMethodId(paymentMethods);
+        setPayMethodId(cashId);
+        setFromMethodId(cashId);
+        const secondMethod = paymentMethods.find((m) => m.id !== cashId && m.isActive) || paymentMethods.find((m) => m.id !== cashId) || paymentMethods[0];
+        setToMethodId(secondMethod?.id || cashId);
       }
       if (combinedPeopleList.length > 0 && (!personId || !combinedPeopleList.some((p) => p.id === personId))) {
         setPersonId(combinedPeopleList[0].id);
@@ -541,6 +547,11 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
                       onClick={() => {
                         setSelectedKind(item.id);
                         setStep(2);
+                        const cashId = getDefaultCashMethodId(paymentMethods);
+                        setPayMethodId(cashId);
+                        setFromMethodId(cashId);
+                        const secondMethod = paymentMethods.find((m) => m.id !== cashId && m.isActive) || paymentMethods.find((m) => m.id !== cashId) || paymentMethods[0];
+                        setToMethodId(secondMethod?.id || cashId);
                       }}
                       className="flex items-center gap-3.5 p-3 rounded bg-[#0C0E12] border border-[#3D4943]/40 hover:border-[#73E3B4]/50 hover:bg-[#1E2024] text-left transition-all group"
                     >
