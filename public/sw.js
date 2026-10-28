@@ -1,10 +1,15 @@
 // EcO Smart Ledger Service Worker
-const CACHE_NAME = 'eco-ledger-v2';
+const CACHE_NAME = 'eco-ledger-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  '/pwa-192x192.png',
+  '/pwa-512x512.png',
+  '/pwa-maskable-512x512.png',
+  '/apple-touch-icon.png',
+  '/favicon-32x32.png'
 ];
 
 self.addEventListener('install', (event) => {
