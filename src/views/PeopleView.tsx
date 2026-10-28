@@ -37,6 +37,7 @@ import { formatTaka } from '../domain/money';
 import { formatDisplayDate, getTodayDateString } from '../domain/dates';
 import { buildBanglaWhatsAppReminder, normalizeWhatsAppPhone } from '../domain/milestones';
 import { invertProposalDirection, formatConnectionCode, validateConnectionCode } from '../domain/connections';
+import { getDefaultCashMethodId } from '../domain/paymentMethods';
 import { repository } from '../data/repository';
 
 interface PeopleViewProps {
@@ -145,12 +146,12 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   const [proposalAmountStr, setProposalAmountStr] = useState<string>('');
   const [proposalDate, setProposalDate] = useState<string>(getTodayDateString());
   const [proposalNote, setProposalNote] = useState<string>('');
-  const [selectedWalletForPropose, setSelectedWalletForPropose] = useState<string>(paymentMethods[0]?.id || '');
+  const [selectedWalletForPropose, setSelectedWalletForPropose] = useState<string>(() => getDefaultCashMethodId(paymentMethods));
   const [proposalError, setProposalError] = useState<string | null>(null);
 
   // Proposal Acceptance Modal (Pick Wallet)
   const [acceptingProposal, setAcceptingProposal] = useState<EcOProposal | null>(null);
-  const [selectedWalletForAccept, setSelectedWalletForAccept] = useState<string>(paymentMethods[0]?.id || '');
+  const [selectedWalletForAccept, setSelectedWalletForAccept] = useState<string>(() => getDefaultCashMethodId(paymentMethods));
 
   // Proposal Dispute Modal
   const [disputingProposal, setDisputingProposal] = useState<EcOProposal | null>(null);
@@ -414,7 +415,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
     setProposalNote('');
     setProposalError(null);
     setProposalDate(getTodayDateString());
-    setSelectedWalletForPropose(paymentMethods[0]?.id || '');
+    setSelectedWalletForPropose(getDefaultCashMethodId(paymentMethods));
     // If loan: default 'give' (I lent money). If repay: default 'give' (I repaid debt).
     setProposalType('give');
     setShowProposeModal(true);
@@ -896,7 +897,10 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAcceptingProposal(proposal)}
+                          onClick={() => {
+                            setSelectedWalletForAccept(getDefaultCashMethodId(paymentMethods));
+                            setAcceptingProposal(proposal);
+                          }}
                           className="px-4 py-1.5 rounded-lg bg-[#55C79A] hover:bg-[#73E3B4] text-[#003826] font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" />
