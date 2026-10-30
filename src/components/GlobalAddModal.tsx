@@ -11,7 +11,8 @@ import {
   Plus,
   Info,
   Zap,
-  Link2
+  Link2,
+  Clock
 } from 'lucide-react';
 import {
   PaymentMethod,
@@ -636,6 +637,14 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
                           {calculateRecurringEndDate(date, recurringDays)}
                         </span>
                       </div>
+                      {parseFloat(amountStr) > 0 && (
+                        <div className="text-[11px] text-[#87948C] flex items-center justify-between pt-1 border-t border-[#3D4943]/20">
+                          <span>Daily Rate:</span>
+                          <span className="font-mono text-[#73E3B4] font-semibold">
+                            {formatTaka(parseFloat(amountStr) / recurringDays)} / day
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -942,6 +951,38 @@ export const GlobalAddModal: React.FC<GlobalAddModalProps> = ({
                     className="w-full pl-8 pr-3 py-2 rounded bg-[#0C0E12] border border-[#3D4943]/60 text-lg font-mono text-[#E2E2E8] focus:outline-none focus:border-[#73E3B4]"
                   />
                 </div>
+
+                {/* Daily Spending Rate for Recurring Expenses */}
+                {selectedKind === 'expense' && expenseKind === 'recurring' && (
+                  <div className="mt-2 p-3 rounded-lg bg-[#0C0E12] border border-[#73E3B4]/40 shadow-sm animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-md bg-[#73E3B4]/15 text-[#73E3B4]">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-[#E2E2E8]">Daily Spending Impact</div>
+                          <div className="text-[10px] text-[#87948C]">
+                            Amortized over {recurringDays} days ({date} to {calculateRecurringEndDate(date, recurringDays)})
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm sm:text-base font-mono font-bold text-[#73E3B4]">
+                          {parseFloat(amountStr) > 0
+                            ? `${formatTaka(parseFloat(amountStr) / recurringDays)} / day`
+                            : '৳ 0.00 / day'}
+                        </div>
+                      </div>
+                    </div>
+                    {parseFloat(amountStr) > 0 && (
+                      <div className="mt-2 pt-1.5 border-t border-[#3D4943]/30 text-[11px] text-[#BCCAC1] flex items-center justify-between">
+                        <span>Daily budget load:</span>
+                        <span className="font-mono text-[#FFB4AB]">-{formatTaka(parseFloat(amountStr) / recurringDays)} every day</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Payment Method selector (unless transfer which has From/To) */}
