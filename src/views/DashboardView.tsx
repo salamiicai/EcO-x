@@ -21,7 +21,10 @@ import {
   Layers,
   Sliders,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  Pencil,
+  Trash2,
+  FileText
 } from 'lucide-react';
 import {
   FinancialSummary,
@@ -35,9 +38,14 @@ import {
   PersonRecord,
   PeerTransactionRecord,
   ExpenseRecord,
-  RecurringExpenseRecord
+  RecurringExpenseRecord,
+  EarningRecord,
+  TransferRecord,
+  IncomeSource
 } from '../domain/types';
 import { FixedEmergencyDetailsModal } from '../components/FixedEmergencyDetailsModal';
+import { EditActivityModal } from '../components/EditActivityModal';
+import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { formatTaka } from '../domain/money';
 import { formatDisplayDate, getTodayDateString } from '../domain/dates';
 import {
@@ -56,6 +64,9 @@ interface DashboardViewProps {
   paymentMethods: PaymentMethod[];
   people: PersonRecord[];
   transactions: PeerTransactionRecord[];
+  sources?: IncomeSource[];
+  categories?: string[];
+  tags?: string[];
   dismissedMilestones?: Record<string, string[]>;
   onDismissMilestone?: (personId: string, milestoneKey: string) => void;
   onNavigateToList: () => void;
@@ -64,6 +75,12 @@ interface DashboardViewProps {
   onNavigateToSettings?: () => void;
   onOpenAddModal: () => void;
   onOpenAddWithKind?: (kind: 'expense' | 'earning' | 'transfer' | 'give' | 'take') => void;
+  onUpdateExpense?: (expense: ExpenseRecord) => void;
+  onUpdateRecurringExpense?: (rec: RecurringExpenseRecord) => void;
+  onUpdateEarning?: (earning: EarningRecord) => void;
+  onUpdateTransfer?: (transfer: TransferRecord) => void;
+  onUpdateTransaction?: (tx: PeerTransactionRecord) => void;
+  onDeleteActivity?: (item: UnifiedActivityItem) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -76,6 +93,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   paymentMethods,
   people = [],
   transactions = [],
+  sources = [],
+  categories = [],
+  tags = [],
   dismissedMilestones = {},
   onDismissMilestone,
   onNavigateToList,
@@ -83,11 +103,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToPeople,
   onNavigateToSettings,
   onOpenAddModal,
-  onOpenAddWithKind
+  onOpenAddWithKind,
+  onUpdateExpense,
+  onUpdateRecurringExpense,
+  onUpdateEarning,
+  onUpdateTransfer,
+  onUpdateTransaction,
+  onDeleteActivity
 }) => {
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [showBudgetDetailsModal, setShowBudgetDetailsModal] = useState(false);
   const [selectedReminderDetails, setSelectedReminderDetails] = useState<LoanMilestoneReminderItem | null>(null);
+
+  // Recent activity filtration, edit & detail states
+  const [selectedActivityTab, setSelectedActivityTab] = useState<'all' | 'expense' | 'earning' | 'transfer' | 'transaction'>('all');
+  const [editingItem, setEditingItem] = useState<UnifiedActivityItem | null>(null);
+  const [detailItem, setDetailItem] = useState<UnifiedActivityItem | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<UnifiedActivityItem | null>(null);
 
   // WhatsApp quick-send modal for missing phone numbers
   const [whatsAppModalItem, setWhatsAppModalItem] = useState<LoanMilestoneReminderItem | null>(null);
@@ -98,6 +130,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const budgetMetrics = useMemo(() => {
     return calculateBudgetMetrics(settings, expenses.length > 0 ? expenses : todayExpenses, recurringExpenses, todayDateStr);
   }, [settings, expenses, todayExpenses, recurringExpenses, todayDateStr]);
+
+  // Filtered recent activities for dashboard
+  const filteredRecentActivities = useMemo(() => {
+    if (selectedActivityTab === 'all') return recentActivities;
+    if (selectedActivityTab === 'expense') {
+      return recentActivities.filter((a) => a.activityType === 'expense' || a.activityType === 'recurring');
+    }
+    return recentActivities.filter((a) => a.activityType === selectedActivityTab);
+  }, [recentActivities, selectedActivityTab]);
+
+  const recentSummary = useMemo(() => {
+    let spent = 0;
+    let earned = 0;
+    let transfers = 0;
+    let lent = 0;
+    let borrowed = 0;
+
+    filteredRecentActivities.forEach((a) => {
+      if (a.activityType === 'expense' || a.activityType === 'recurring') spent += a.amount;
+      else if (a.activityType === 'earning') earned += a.amount;
+      else if (a.activityType === 'transfer') transfers += a.amount;
+      else if (a.activityType === 'transaction') {
+        if (a.direction === 'give') lent += a.amount;
+        else if (a.direction === 'take') borrowed += a.amount;
+      }
+    });
+
+    return {
+      spent,
+      earned,
+      net: earned - spent,
+      transfers,
+      lent,
+      borrowed,
+      count: filteredRecentActivities.length
+    };
+  }, [filteredRecentActivities]);
 
   // Mature Lending & Debt Milestones
   const reminderData = useMemo(() => {
@@ -652,33 +721,115 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </section>
 
       {/* =========================================================================
-          RECENT ACTIVITY PREVIEW
+          RECENT ACTIVITY & LEDGER PREVIEW (With filtration summary & direct editing)
          ========================================================================= */}
-      <section className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-medium uppercase tracking-wider text-[#BCCAC1]">
-            Recent Financial Activity
-          </h3>
+      <section className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#BCCAC1]">
+              Recent Financial Activity & Ledger
+            </h3>
+            <p className="text-[11px] text-[#87948C]">
+              Review recent entries, filter by category or type, and edit any record anytime
+            </p>
+          </div>
           <button
             type="button"
             onClick={onNavigateToList}
-            className="text-xs text-[#73E3B4] hover:underline flex items-center gap-1 cursor-pointer"
+            className="self-start sm:self-auto text-xs text-[#73E3B4] hover:underline flex items-center gap-1 cursor-pointer font-medium"
           >
             <span>Open Complete Ledger</span>
-            <ArrowRight className="w-3 h-3" />
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
+        {/* Quick Filter Tabs for Recent Activity */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          {[
+            { id: 'all' as const, label: 'All Activities' },
+            { id: 'expense' as const, label: 'Expenses' },
+            { id: 'earning' as const, label: 'Income / Earnings' },
+            { id: 'transfer' as const, label: 'Transfers' },
+            { id: 'transaction' as const, label: 'Loans & Debts' }
+          ].map((tab) => {
+            const isActive = selectedActivityTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSelectedActivityTab(tab.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-[#1E2024] text-[#73E3B4] border border-[#73E3B4]/40 font-semibold'
+                    : 'text-[#BCCAC1] hover:text-[#E2E2E8] hover:bg-[#1A1C20] border border-transparent'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Filtered Summary Card on Dashboard */}
+        <div className="p-3.5 rounded-xl bg-[#1A1C20] border border-[#73E3B4]/30 shadow-sm space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#E2E2E8] flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-[#73E3B4]" />
+              <span>
+                {selectedActivityTab === 'expense'
+                  ? 'Recent Expenses Summary'
+                  : selectedActivityTab === 'earning'
+                  ? 'Recent Earnings Summary'
+                  : selectedActivityTab === 'transfer'
+                  ? 'Recent Transfers Summary'
+                  : selectedActivityTab === 'transaction'
+                  ? 'Recent Loans Summary'
+                  : 'Recent Ledger Summary'}
+              </span>
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#0C0E12] text-[#73E3B4] border border-[#73E3B4]/30">
+              {recentSummary.count} entries
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <div className="p-2 rounded-lg bg-[#0C0E12] border border-[#FFB4AB]/20">
+              <div className="text-[10px] text-[#87948C]">Recent Outflow</div>
+              <div className="text-sm font-mono font-bold text-[#FFB4AB]">
+                {formatTaka(recentSummary.spent)}
+              </div>
+            </div>
+            <div className="p-2 rounded-lg bg-[#0C0E12] border border-[#73E3B4]/20">
+              <div className="text-[10px] text-[#87948C]">Recent Inflow</div>
+              <div className="text-sm font-mono font-bold text-[#73E3B4]">
+                {formatTaka(recentSummary.earned)}
+              </div>
+            </div>
+            <div className="p-2 rounded-lg bg-[#0C0E12] border border-[#3D4943]/30 col-span-2 sm:col-span-1">
+              <div className="text-[10px] text-[#87948C]">Net Balance</div>
+              <div
+                className={`text-sm font-mono font-bold ${
+                  recentSummary.net >= 0 ? 'text-[#73E3B4]' : 'text-[#FFB4AB]'
+                }`}
+              >
+                {recentSummary.net >= 0 ? '+' : ''}
+                {formatTaka(recentSummary.net)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Activities List with Edit buttons */}
         <div className="bg-[#1A1C20] border border-[#3D4943]/40 rounded-xl divide-y divide-[#3D4943]/20 overflow-hidden shadow-sm">
-          {recentActivities.length === 0 ? (
+          {filteredRecentActivities.length === 0 ? (
             <div className="p-8 text-center text-xs text-[#87948C]">
-              No transactions recorded yet. Tap "+ Record Entry" to log your first transaction.
+              No transactions match this category. Tap "+ Record Entry" to log a transaction.
             </div>
           ) : (
-            recentActivities.slice(0, 5).map((item) => (
+            filteredRecentActivities.slice(0, 8).map((item) => (
               <div
                 key={item.id}
-                onClick={onNavigateToList}
+                onClick={() => setDetailItem(item)}
                 className="p-3.5 flex items-center justify-between hover:bg-[#1E2024]/60 transition-colors cursor-pointer group"
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -690,31 +841,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {item.activityType === 'recurring' && <Layers className="w-4 h-4 text-[#BEC7D5]" />}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-[#E2E2E8] group-hover:text-[#73E3B4] transition-colors truncate">
+                    <div className="text-xs font-semibold text-[#E2E2E8] group-hover:text-[#73E3B4] transition-colors truncate">
                       {item.title}
                     </div>
-                    <div className="text-[10px] text-[#87948C] mt-0.5 truncate">
-                      {formatDisplayDate(item.date)} {item.categoryOrSourceOrPerson ? `· ${item.categoryOrSourceOrPerson}` : ''}
+                    <div className="text-[11px] text-[#87948C] mt-0.5 truncate flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-[#BCCAC1]">
+                        {formatDisplayDate(item.date)}
+                      </span>
+                      {item.categoryOrSourceOrPerson && (
+                        <>
+                          <span>·</span>
+                          <span className="capitalize">{item.categoryOrSourceOrPerson}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div className="text-right shrink-0 ml-3">
-                  <div
-                    className={`text-xs font-mono tabular-nums font-bold ${
-                      item.activityType === 'expense'
-                        ? 'text-[#FFB4AB]'
-                        : item.activityType === 'earning'
-                        ? 'text-[#73E3B4]'
-                        : 'text-[#E2E2E8]'
-                    }`}
-                  >
-                    {item.activityType === 'expense' ? '-' : item.activityType === 'earning' ? '+' : ''}
-                    {formatTaka(item.amount)}
+                <div className="flex items-center gap-2.5 shrink-0 ml-3">
+                  <div className="text-right">
+                    <div
+                      className={`text-xs font-mono tabular-nums font-bold ${
+                        item.activityType === 'expense'
+                          ? 'text-[#FFB4AB]'
+                          : item.activityType === 'earning'
+                          ? 'text-[#73E3B4]'
+                          : 'text-[#E2E2E8]'
+                      }`}
+                    >
+                      {item.activityType === 'expense' ? '-' : item.activityType === 'earning' ? '+' : ''}
+                      {formatTaka(item.amount)}
+                    </div>
+                    {item.netEffectText && (
+                      <div className="text-[10px] text-[#87948C]">{item.netEffectText}</div>
+                    )}
                   </div>
-                  {item.netEffectText && (
-                    <div className="text-[10px] text-[#87948C]">{item.netEffectText}</div>
-                  )}
+
+                  {/* Direct Edit Button */}
+                  <button
+                    type="button"
+                    title="Edit Record"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingItem(item);
+                    }}
+                    className="p-1.5 rounded-lg bg-[#282A2E]/60 hover:bg-[#73E3B4]/20 text-[#87948C] hover:text-[#73E3B4] transition-colors cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+
+                  <ChevronRight className="w-4 h-4 text-[#87948C] group-hover:text-[#E2E2E8] transition-colors" />
                 </div>
               </div>
             ))
@@ -948,6 +1124,159 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         metrics={budgetMetrics}
         onNavigateToSettings={onNavigateToSettings}
       />
+
+      {/* Activity Details Audit Modal */}
+      {detailItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDetailItem(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md bg-[#1A1C20] border border-[#3D4943]/60 rounded-xl p-5 shadow-2xl flex flex-col space-y-4">
+            <div className="flex items-center justify-between border-b border-[#3D4943]/30 pb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#73E3B4]" />
+                <h3 className="text-sm font-semibold text-[#E2E2E8]">Transaction Audit Details</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailItem(null)}
+                className="p-1 rounded text-[#87948C] hover:text-[#E2E2E8] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-lg bg-[#0C0E12] border border-[#3D4943]/30 text-center">
+              <div className="text-[11px] text-[#87948C] uppercase tracking-wider">
+                {detailItem.activityType.toUpperCase()}
+              </div>
+              <div className="text-2xl font-mono tabular-nums font-bold text-[#E2E2E8] mt-1">
+                {formatTaka(detailItem.amount)}
+              </div>
+              <div className="text-xs text-[#BCCAC1] mt-0.5">{detailItem.title}</div>
+            </div>
+
+            <div className="divide-y divide-[#3D4943]/20 text-xs">
+              <div className="py-2 flex items-center justify-between">
+                <span className="text-[#87948C]">Date</span>
+                <span className="font-mono text-[#E2E2E8]">{formatDisplayDate(detailItem.date)}</span>
+              </div>
+              <div className="py-2 flex items-center justify-between">
+                <span className="text-[#87948C]">Category / Party</span>
+                <span className="font-medium text-[#E2E2E8]">{detailItem.categoryOrSourceOrPerson}</span>
+              </div>
+              {detailItem.payMethodId && (
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-[#87948C]">Wallet</span>
+                  <span className="text-[#73E3B4] font-medium">
+                    {paymentMethods.find((m) => m.id === detailItem.payMethodId)?.name || 'Account'}
+                  </span>
+                </div>
+              )}
+              {detailItem.description && (
+                <div className="py-2 space-y-1">
+                  <span className="text-[#87948C] block">Notes & Description</span>
+                  <p className="text-xs text-[#E2E2E8] bg-[#0C0E12] p-2 rounded border border-[#3D4943]/20">
+                    {detailItem.description}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-[#3D4943]/30 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toEdit = detailItem;
+                    setDetailItem(null);
+                    setEditingItem(toEdit);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-[#73E3B4]/15 hover:bg-[#73E3B4]/25 text-[#73E3B4] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit Record</span>
+                </button>
+                {onDeleteActivity && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItemToDelete(detailItem);
+                      setDetailItem(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#FFB4AB]/10 hover:bg-[#FFB4AB]/20 text-[#FFB4AB] text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailItem(null)}
+                className="px-4 py-1.5 rounded-lg bg-[#282A2E] hover:bg-[#333539] text-xs text-[#E2E2E8] font-medium cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Activity Modal */}
+      {editingItem && (
+        <EditActivityModal
+          isOpen={true}
+          item={editingItem}
+          paymentMethods={paymentMethods}
+          people={people}
+          categories={categories && categories.length > 0 ? categories : settings.categories}
+          sources={sources}
+          tags={tags && tags.length > 0 ? tags : settings.tags}
+          onClose={() => setEditingItem(null)}
+          onSaveExpense={(exp) => {
+            onUpdateExpense?.(exp);
+            setEditingItem(null);
+          }}
+          onSaveRecurringExpense={(rec) => {
+            onUpdateRecurringExpense?.(rec);
+            setEditingItem(null);
+          }}
+          onSaveEarning={(earn) => {
+            onUpdateEarning?.(earn);
+            setEditingItem(null);
+          }}
+          onSaveTransfer={(tr) => {
+            onUpdateTransfer?.(tr);
+            setEditingItem(null);
+          }}
+          onSaveTransaction={(tx) => {
+            onUpdateTransaction?.(tx);
+            setEditingItem(null);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {itemToDelete && onDeleteActivity && (
+        <ConfirmModal
+          isOpen={true}
+          title="Delete Transaction Record"
+          message={`Are you sure you want to delete "${itemToDelete.title}" (${formatTaka(itemToDelete.amount)})? This will reverse all financial ledger and wallet balance effects.`}
+          confirmLabel="Delete Record"
+          cancelLabel="Keep Record"
+          isDestructive={true}
+          onConfirm={() => {
+            onDeleteActivity(itemToDelete);
+            setItemToDelete(null);
+          }}
+          onCancel={() => setItemToDelete(null)}
+        />
+      )}
     </div>
   );
 };
