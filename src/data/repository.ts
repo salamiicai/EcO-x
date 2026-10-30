@@ -1062,6 +1062,25 @@ export class HybridFirebaseRepository {
     this.notify();
   }
 
+  async updateExpense(expense: ExpenseRecord): Promise<void> {
+    const list = [...this.expenses];
+    const index = list.findIndex((e) => e.id === expense.id);
+    if (index >= 0) {
+      list[index] = expense;
+      this.expenses = list;
+      this.saveToLocalStorageCache('expenses', list);
+
+      if (isFirebaseConfigured() && db && this.activeUserId) {
+        try {
+          await this.setDocSafe(doc(db, 'users', this.activeUserId, 'expenses', expense.id), expense, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${this.activeUserId}/expenses/${expense.id}`);
+        }
+      }
+      this.notify();
+    }
+  }
+
   async deleteExpense(expenseId: string): Promise<void> {
     this.expenses = this.expenses.filter((e) => e.id !== expenseId);
     this.saveToLocalStorageCache('expenses', this.expenses);
@@ -1093,6 +1112,25 @@ export class HybridFirebaseRepository {
       }
     }
     this.notify();
+  }
+
+  async updateRecurringExpense(rec: RecurringExpenseRecord): Promise<void> {
+    const list = [...this.recurringExpenses];
+    const index = list.findIndex((r) => r.id === rec.id);
+    if (index >= 0) {
+      list[index] = rec;
+      this.recurringExpenses = list;
+      this.saveToLocalStorageCache('recurringExpenses', list);
+
+      if (isFirebaseConfigured() && db && this.activeUserId) {
+        try {
+          await this.setDocSafe(doc(db, 'users', this.activeUserId, 'recurringExpenses', rec.id), rec, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${this.activeUserId}/recurringExpenses/${rec.id}`);
+        }
+      }
+      this.notify();
+    }
   }
 
   async deleteRecurringExpense(id: string): Promise<void> {
@@ -1128,6 +1166,25 @@ export class HybridFirebaseRepository {
     this.notify();
   }
 
+  async updateEarning(earning: EarningRecord): Promise<void> {
+    const list = [...this.earnings];
+    const index = list.findIndex((e) => e.id === earning.id);
+    if (index >= 0) {
+      list[index] = earning;
+      this.earnings = list;
+      this.saveToLocalStorageCache('earnings', list);
+
+      if (isFirebaseConfigured() && db && this.activeUserId) {
+        try {
+          await this.setDocSafe(doc(db, 'users', this.activeUserId, 'earnings', earning.id), earning, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${this.activeUserId}/earnings/${earning.id}`);
+        }
+      }
+      this.notify();
+    }
+  }
+
   async deleteEarning(earningId: string): Promise<void> {
     this.earnings = this.earnings.filter((e) => e.id !== earningId);
     this.saveToLocalStorageCache('earnings', this.earnings);
@@ -1159,6 +1216,25 @@ export class HybridFirebaseRepository {
       }
     }
     this.notify();
+  }
+
+  async updateTransfer(transfer: TransferRecord): Promise<void> {
+    const list = [...this.transfers];
+    const index = list.findIndex((t) => t.id === transfer.id);
+    if (index >= 0) {
+      list[index] = transfer;
+      this.transfers = list;
+      this.saveToLocalStorageCache('transfers', list);
+
+      if (isFirebaseConfigured() && db && this.activeUserId) {
+        try {
+          await this.setDocSafe(doc(db, 'users', this.activeUserId, 'transfers', transfer.id), transfer, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${this.activeUserId}/transfers/${transfer.id}`);
+        }
+      }
+      this.notify();
+    }
   }
 
   async deleteTransfer(transferId: string): Promise<void> {
@@ -1244,6 +1320,25 @@ export class HybridFirebaseRepository {
       }
     }
     this.notify();
+  }
+
+  async updateTransaction(tx: PeerTransactionRecord): Promise<void> {
+    const list = [...this.transactions];
+    const index = list.findIndex((t) => t.id === tx.id);
+    if (index >= 0) {
+      list[index] = tx;
+      this.transactions = list;
+      this.saveToLocalStorageCache('transactions', list);
+
+      if (isFirebaseConfigured() && db && this.activeUserId) {
+        try {
+          await this.setDocSafe(doc(db, 'users', this.activeUserId, 'transactions', tx.id), tx, { merge: true });
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${this.activeUserId}/transactions/${tx.id}`);
+        }
+      }
+      this.notify();
+    }
   }
 
   async deleteTransaction(txId: string): Promise<void> {
