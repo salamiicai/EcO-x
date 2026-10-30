@@ -372,6 +372,32 @@ export default function App() {
     showToast('Record deleted.');
   };
 
+  // Handlers: Update activities from unified list
+  const handleUpdateExpense = async (expense: ExpenseRecord) => {
+    await repository.updateExpense(expense);
+    showToast(`Expense "${expense.reason}" updated.`);
+  };
+
+  const handleUpdateRecurringExpense = async (rec: RecurringExpenseRecord) => {
+    await repository.updateRecurringExpense(rec);
+    showToast(`Recurring schedule "${rec.reason}" updated.`);
+  };
+
+  const handleUpdateEarning = async (earning: EarningRecord) => {
+    await repository.updateEarning(earning);
+    showToast(`Income "${earning.source}" updated.`);
+  };
+
+  const handleUpdateTransfer = async (transfer: TransferRecord) => {
+    await repository.updateTransfer(transfer);
+    showToast('Transfer record updated.');
+  };
+
+  const handleUpdateTransaction = async (tx: PeerTransactionRecord) => {
+    await repository.updateTransaction(tx);
+    showToast('Loan / Debt transaction updated.');
+  };
+
   // Handler: Complete onboarding for new user
   const handleCompleteNewUser = async (data: {
     cashBalance: number;
@@ -682,7 +708,14 @@ export default function App() {
               paymentMethods={paymentMethods}
               people={people}
               categories={settings.categories}
+              sources={sources}
+              tags={settings.tags}
               onDeleteActivity={handleDeleteActivity}
+              onUpdateExpense={handleUpdateExpense}
+              onUpdateRecurringExpense={handleUpdateRecurringExpense}
+              onUpdateEarning={handleUpdateEarning}
+              onUpdateTransfer={handleUpdateTransfer}
+              onUpdateTransaction={handleUpdateTransaction}
               onOpenAddModal={() => {
                 setInitialAddKind(undefined);
                 setIsAddModalOpen(true);
