@@ -1,5 +1,5 @@
 // EcO Smart Ledger Service Worker
-const CACHE_NAME = 'eco-ledger-v3';
+const CACHE_NAME = 'eco-ledger-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -13,10 +13,11 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -34,6 +35,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
@@ -42,16 +49,36 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network first with fallback to cache for offline availability
+  // Network-first for HTML page navigations to guarantee immediate deployment updates
+  const acceptHeader = event.request.headers.get('accept');
+  const isHtmlNavigation = event.request.mode === 'navigate' ||
+    (Boolean(acceptHeader) && acceptHeader.indexOf('text/html') !== -1);
+
+  if (isHtmlNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache).catch(() => {});
+            }).catch(() => {});
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // Network first with fallback to cache for other assets
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && (networkResponse.type === 'basic' || networkResponse.type === 'cors')) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            if (event.request.url.startsWith('http://') || event.request.url.startsWith('https://')) {
-              cache.put(event.request, responseToCache).catch(() => {});
-            }
+            cache.put(event.request, responseToCache).catch(() => {});
           }).catch(() => {});
         }
         return networkResponse;
@@ -61,3 +88,4 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+
