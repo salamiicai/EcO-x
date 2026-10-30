@@ -699,6 +699,15 @@ export default function App() {
                 setInitialAddKind(undefined);
                 setIsAddModalOpen(true);
               }}
+              sources={sources}
+              categories={settings.categories}
+              tags={settings.tags}
+              onUpdateExpense={handleUpdateExpense}
+              onUpdateRecurringExpense={handleUpdateRecurringExpense}
+              onUpdateEarning={handleUpdateEarning}
+              onUpdateTransfer={handleUpdateTransfer}
+              onUpdateTransaction={handleUpdateTransaction}
+              onDeleteActivity={handleDeleteActivity}
             />
           )}
 
